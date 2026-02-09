@@ -1,0 +1,35 @@
+/* Custom styles */
+.nav-link {
+    color: #fff !important;
+}
+
+.nav-link:hover {
+    opacity: 0.8;
+}
+/* Register form styling */
+#registerForm {
+    background: #f8f9fa;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+#registerForm h2 {
+    color: #333;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+#registerForm .form-control {
+    border-radius: 5px;
+    border: 1px solid #ddd;
+}
+
+#registerForm .btn {
+    border-radius: 5px;
+    font-weight: 500;
+}
+/* Hide success message by default */
+#successMessage {
+    display: none;
+}

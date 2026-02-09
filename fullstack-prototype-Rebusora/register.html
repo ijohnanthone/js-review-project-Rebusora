@@ -1,0 +1,70 @@
+<style>
+    /* Register form styling */
+    #registerForm {
+        background: #f8f9fa;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    #registerForm h2 {
+        color: #333;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+
+    #registerForm .form-control {
+        border-radius: 5px;
+        border: 1px solid #ddd;
+    }
+
+    #registerForm .btn {
+        border-radius: 5px;
+        font-weight: 500;
+    }
+
+    /* Hide success message by default */
+    #successMessage {
+        display: none;
+    }
+</style>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <h2 class="mb-4">Register Account</h2>
+            <p class="text-muted mb-4">Employee Registration Form</p>
+
+            <form id="registerForm">
+                <div class="mb-3">
+                    <label for="firstName" class="form-label">First Name</label>
+                    <input type="text" class="form-control" id="firstName" required>
+                </div>
+
+                <div class="mb-3">
+                    <label for="lastName" class="form-label">Last Name</label>
+                    <input type="text" class="form-control" id="lastName" required>
+                </div>
+
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" class="form-control" id="email" required>
+                </div>
+
+                <div class="mb-3">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-control" id="password" required>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-success">Sign Up</button>
+                    <button type="button" onclick="goHome()" class="btn btn-secondary">Cancel</button>
+                </div>
+            </form>
+
+            <div id="successMessage" class="alert alert-success mt-3">
+                Account registered successfully!
+            </div>
+        </div>
+    </div>
+</div>

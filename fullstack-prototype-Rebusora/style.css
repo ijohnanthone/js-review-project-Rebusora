@@ -1,4 +1,29 @@
-/* Custom styles */
+/* Page mechanics: hide all views, then show the active one. */
+.page {
+    display: none;
+}
+
+.page.active {
+    display: block;
+}
+
+/* Role visibility filters controlled by body classes. */
+body.not-authenticated .role-logged-in {
+    display: none !important;
+}
+
+body.not-authenticated .role-admin {
+    display: none !important;
+}
+
+body.is-authenticated .role-public {
+    display: none !important;
+}
+
+body.is-authenticated:not(.is-admin) .role-admin {
+    display: none !important;
+}
+
 .nav-link {
     color: #fff !important;
 }
@@ -7,7 +32,22 @@
     opacity: 0.8;
 }
 
-#registerForm, #loginForm {
+.nav-link.route-active {
+    text-decoration: underline;
+    text-underline-offset: 4px;
+}
+
+.brand-text {
+    margin-right: 1rem;
+}
+
+.nav-zones {
+    gap: 0.25rem;
+}
+
+#registerForm,
+#loginForm,
+.panel-box {
     background: #f8f9fa;
     padding: 30px;
     border-radius: 8px;
@@ -18,30 +58,6 @@
     display: none;
 }
 
-/* Register form styling */
-#registerForm {
-    background: #f8f9fa;
-    padding: 30px;
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-#registerForm h2 {
-    color: #333;
-    font-weight: bold;
-    margin-bottom: 10px;
-}
-
-#registerForm .form-control {
-    border-radius: 5px;
-    border: 1px solid #ddd;
-}
-
-#registerForm .btn {
-    border-radius: 5px;
-    font-weight: 500;
-}
-/* Hide success message by default */
-#successMessage {
+#verifyInlineBox {
     display: none;
 }

@@ -122,6 +122,33 @@
         <div class="panel-box">
             <h2>Profile</h2>
             <p id="profileMessage">No active user.</p>
+            <div id="profileEditPopover" class="profile-edit-popover" aria-hidden="true">
+                <form id="profileEditForm" class="row g-2">
+                    <div class="col-12">
+                        <h6 class="mb-2">Edit Profile</h6>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="profileFirstNameInput" class="form-label">First Name</label>
+                        <input id="profileFirstNameInput" class="form-control" type="text" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="profileLastNameInput" class="form-label">Last Name</label>
+                        <input id="profileLastNameInput" class="form-control" type="text" required>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="profileEmailInput" class="form-label">Email</label>
+                        <input id="profileEmailInput" class="form-control" type="email" readonly>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="profileRoleInput" class="form-label">Role</label>
+                        <input id="profileRoleInput" class="form-control" type="text" readonly>
+                    </div>
+                    <div class="col-12 d-flex gap-2 mt-2">
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                        <button type="button" id="cancelProfileEditBtn" class="btn btn-secondary">Cancel</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </section>

@@ -82,19 +82,20 @@ function saveDB() {
 
 // ===== UI Feedback =====
 // Shows a Bootstrap toast message for user feedback.
-function showToast(message, type = "info") {
+function showToast(message, type = "info", position = "top-center", delay = 1000) {
   const container = $("appToastContainer");
   if (!container || !window.bootstrap) return;
+  container.classList.remove("toast-pos-top-right", "toast-pos-top-center");
+  container.classList.add(position === "top-center" ? "toast-pos-top-center" : "toast-pos-top-right");
   const tone = ({ success: "text-bg-success", warning: "text-bg-warning", danger: "text-bg-danger", info: "text-bg-primary" })[type] || "text-bg-primary";
-  const closeClass = type === "warning" ? "btn-close" : "btn-close btn-close-white";
   const toast = document.createElement("div");
   toast.className = `toast align-items-center border-0 ${tone}`;
   toast.setAttribute("role", "alert");
   toast.setAttribute("aria-live", "assertive");
   toast.setAttribute("aria-atomic", "true");
-  toast.innerHTML = `<div class="d-flex"><div class="toast-body">${message}</div><button type="button" class="${closeClass} me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button></div>`;
+  toast.innerHTML = `<div class="d-flex"><div class="toast-body">${message}</div></div>`;
   container.appendChild(toast);
-  const inst = new window.bootstrap.Toast(toast, { delay: 2200 });
+  const inst = new window.bootstrap.Toast(toast, { delay });
   toast.addEventListener("hidden.bs.toast", () => toast.remove());
   inst.show();
 }
@@ -175,6 +176,33 @@ function setAuthState(isAuth, user = null) {
 }
 
 // ===== View Rendering =====
+// Loads current profile values into the floating profile form.
+function fillProfileEditForm(user = currentUser) {
+  if (!user) return;
+  if ($("profileFirstNameInput")) $("profileFirstNameInput").value = user.firstName || "";
+  if ($("profileLastNameInput")) $("profileLastNameInput").value = user.lastName || "";
+  if ($("profileEmailInput")) $("profileEmailInput").value = user.email || "";
+  if ($("profileRoleInput")) $("profileRoleInput").value = user.role || "";
+}
+
+// Opens the floating profile edit form.
+function openProfileEditForm(user = currentUser) {
+  const pop = $("profileEditPopover");
+  if (!pop || !user) return;
+  fillProfileEditForm(user);
+  pop.classList.add("active");
+  pop.setAttribute("aria-hidden", "false");
+  $("profileFirstNameInput")?.focus();
+}
+
+// Closes the floating profile edit form.
+function closeProfileEditForm() {
+  const pop = $("profileEditPopover");
+  if (!pop) return;
+  pop.classList.remove("active");
+  pop.setAttribute("aria-hidden", "true");
+}
+
 // Renders the Profile section and wires profile edit action for the current account.
 function renderProfile(user = currentUser) {
   const node = $("profileMessage");
@@ -183,6 +211,7 @@ function renderProfile(user = currentUser) {
   if (!user) {
     node.textContent = "No active user.";
     if (existingBtn) existingBtn.remove();
+    closeProfileEditForm();
     return;
   }
   node.textContent = `Name: ${user.firstName} ${user.lastName} | Email: ${user.email} | Role: ${user.role}`;
@@ -195,24 +224,7 @@ function renderProfile(user = currentUser) {
   btn.addEventListener("click", () => {
     const active = getCurrentUser();
     if (!active) return showToast("Login required.", "warning");
-    const firstName = prompt("Update first name:", active.firstName || "");
-    if (firstName === null) return;
-    const lastName = prompt("Update last name:", active.lastName || "");
-    if (lastName === null) return;
-    const cleanFirst = String(firstName).trim();
-    const cleanLast = String(lastName).trim();
-    if (!cleanFirst || !cleanLast) return showToast("First and last name are required.", "warning");
-
-    const target = state.db.accounts.find((a) => a.email === active.email);
-    if (!target) return showToast("Account not found.", "danger");
-    target.firstName = cleanFirst;
-    target.lastName = cleanLast;
-    saveDB();
-    setSession(target);
-    setAuthState(true, target);
-    renderProfile(target);
-    if (target.role === "admin") renderAdminViews(target);
-    showToast("Profile updated.", "success");
+    openProfileEditForm(active);
   });
   node.insertAdjacentElement("afterend", btn);
 }
@@ -507,6 +519,7 @@ function handleRouting() {
   const hash = normalizeHash(window.location.hash || "#/");
   const guarded = guardHash(hash, currentUser);
   if (guarded !== hash) { navigateTo(guarded); return; }
+  if (hash !== "#/profile") closeProfileEditForm();
   setActiveRoute(hash);
   renderRoute(hash, currentUser);
 }
@@ -523,6 +536,28 @@ function logout() {
 // Central event wiring for forms/buttons. Most create/update/delete behavior starts here.
 function bindEvents() {
   $("logoutLink")?.addEventListener("click", (e) => { e.preventDefault(); logout(); });
+  $("cancelProfileEditBtn")?.addEventListener("click", closeProfileEditForm);
+  $("profileEditForm")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const active = getCurrentUser();
+    if (!active) return showToast("Login required.", "warning");
+    const cleanFirst = String($("profileFirstNameInput")?.value || "").trim();
+    const cleanLast = String($("profileLastNameInput")?.value || "").trim();
+    if (!cleanFirst || !cleanLast) return showToast("First and last name are required.", "warning");
+
+    const target = state.db.accounts.find((a) => a.email === active.email);
+    if (!target) return showToast("Account not found.", "danger");
+    target.firstName = cleanFirst;
+    target.lastName = cleanLast;
+    saveDB();
+    setSession(target);
+    setAuthState(true, target);
+    renderProfile(target);
+    fillProfileEditForm(target);
+    if (target.role === "admin") renderAdminViews(target);
+    closeProfileEditForm();
+    showToast("Profile updated.", "success", "top-center");
+  });
 
   $("registerForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -538,7 +573,7 @@ function bindEvents() {
     localStorage.setItem(KEYS.unverified, email);
     $("registerForm")?.reset();
     renderVerifyBlock();
-    showToast("Registration saved. Please verify your email.", "info");
+    showToast("Registration successful. Verify your email first before login.", "info", "top-center", 1500);
     navigateTo("#/verify-email");
   });
 
@@ -573,7 +608,7 @@ function bindEvents() {
       saveDB();
       localStorage.removeItem(KEYS.unverified);
       renderVerifyBlock();
-      showToast("Email verified. Please login.", "success");
+      showToast("Email verified. Please login.", "success", "top-center", 1500);
       if ($("simulateVerifyBtn")) {
         $("simulateVerifyBtn").innerHTML = originalButtonHtml;
         $("simulateVerifyBtn").disabled = false;

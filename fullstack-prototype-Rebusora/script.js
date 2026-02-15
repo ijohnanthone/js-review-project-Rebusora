@@ -110,6 +110,41 @@ function showToast(message, type = "info", position = "top-center", delay = 1000
   inst.show();
 }
 
+// Returns or creates a small inline error node right after a field.
+function ensureFieldErrorNode(field) {
+  if (!(field instanceof HTMLElement)) return null;
+  const next = field.nextElementSibling;
+  if (next && next.classList.contains("field-error")) return next;
+  const node = document.createElement("div");
+  node.className = "field-error";
+  field.insertAdjacentElement("afterend", node);
+  return node;
+}
+
+// Shows inline validation message for one input/select field.
+function setFieldError(field, message) {
+  if (!(field instanceof HTMLElement)) return;
+  const node = ensureFieldErrorNode(field);
+  if (!node) return;
+  field.classList.add("is-invalid");
+  node.textContent = message;
+}
+
+// Clears inline validation message for one field.
+function clearFieldError(field) {
+  if (!(field instanceof HTMLElement)) return;
+  field.classList.remove("is-invalid");
+  const next = field.nextElementSibling;
+  if (next && next.classList.contains("field-error")) next.textContent = "";
+}
+
+// Clears all inline validation messages inside a form.
+function clearFormErrors(form) {
+  if (!(form instanceof HTMLFormElement)) return;
+  form.querySelectorAll(".is-invalid").forEach((el) => el.classList.remove("is-invalid"));
+  form.querySelectorAll(".field-error").forEach((el) => { el.textContent = ""; });
+}
+
 // ===== Data Bootstrap =====
 // Initializes state from LocalStorage and performs migration from older keys/formats.
 // Side effect: always writes normalized data back to storage through `saveDB()`.
@@ -297,6 +332,10 @@ function departmentNameById(id) {
 function renderAccountsTable(currentUser) {
   const tbody = $("accountsTableBody");
   if (!tbody) return;
+  if (!state.db.accounts.length) {
+    tbody.innerHTML = `<tr class="table-empty-row"><td colspan="5">No accounts yet.</td></tr>`;
+    return;
+  }
   tbody.innerHTML = state.db.accounts.map((a) => `<tr><td>${a.firstName || ""} ${a.lastName || ""}</td><td>${a.email}</td><td>${a.role}</td><td>${a.verified ? "Yes" : "No"}</td><td><button class="btn btn-sm btn-outline-success me-1" data-account-action="edit" data-email="${a.email}">Edit</button><button class="btn btn-sm btn-outline-primary me-1" data-account-action="reset" data-email="${a.email}">Reset Password</button><button class="btn btn-sm btn-outline-danger" data-account-action="delete" data-email="${a.email}">Delete</button></td></tr>`).join("");
   tbody.querySelectorAll("button[data-account-action]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -356,6 +395,10 @@ function fillAccountForm(a) {
 function renderDepartmentsTable() {
   const tbody = $("departmentsTableBody");
   if (!tbody) return;
+  if (!state.db.departments.length) {
+    tbody.innerHTML = `<tr class="table-empty-row"><td colspan="3">No departments yet.</td></tr>`;
+    return;
+  }
   tbody.innerHTML = state.db.departments.map((d) => `<tr><td>${d.name}</td><td>${d.description || ""}</td><td><button class="btn btn-sm btn-outline-primary me-1" data-dept-action="edit" data-dept-id="${d.id}">Edit</button><button class="btn btn-sm btn-outline-danger" data-dept-action="delete" data-dept-id="${d.id}">Delete</button></td></tr>`).join("");
   tbody.querySelectorAll("button[data-dept-action]").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.getAttribute("data-dept-action");
@@ -425,6 +468,10 @@ function resetEmployeeForm() {
 function renderEmployeesTable() {
   const tbody = $("employeesTableBody");
   if (!tbody) return;
+  if (!state.db.employees.length) {
+    tbody.innerHTML = `<tr class="table-empty-row"><td colspan="6">No employees yet.</td></tr>`;
+    return;
+  }
   tbody.innerHTML = state.db.employees.map((e) => `<tr><td>${e.id}</td><td>${e.userEmail}</td><td>${e.position}</td><td>${departmentNameById(e.departmentId)}</td><td>${e.hireDate || ""}</td><td><button class="btn btn-sm btn-outline-success me-1" data-emp-action="edit" data-emp-id="${e.id}">Edit</button><button class="btn btn-sm btn-outline-danger" data-emp-action="delete" data-emp-id="${e.id}">Delete</button></td></tr>`).join("");
   tbody.querySelectorAll("button[data-emp-action]").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.getAttribute("data-emp-action");
@@ -546,6 +593,10 @@ function renderAdminRequests(user) {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!user || user.role !== "admin") return;
+  if (!state.db.requests.length) {
+    tbody.innerHTML = `<tr class="table-empty-row"><td colspan="6">No requests yet.</td></tr>`;
+    return;
+  }
   tbody.innerHTML = state.db.requests.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt)).map((r) => {
     const details = requestDetailsText(r);
     return `<tr><td>${r.employeeEmail}</td><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${details}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td><td><button class="btn btn-sm btn-outline-success me-1" data-request-action="approve" data-request-id="${r.id}">Approve</button><button class="btn btn-sm btn-outline-danger" data-request-action="reject" data-request-id="${r.id}">Reject</button></td></tr>`;
@@ -605,6 +656,10 @@ function logout() {
 // ===== Event Bindings =====
 // Central event wiring for forms/buttons. Most create/update/delete behavior starts here.
 function bindEvents() {
+  document.addEventListener("input", (e) => {
+    const target = e.target;
+    if (target instanceof HTMLElement && target.classList.contains("is-invalid")) clearFieldError(target);
+  });
   $("logoutLink")?.addEventListener("click", (e) => { e.preventDefault(); logout(); });
   $("cancelProfileEditBtn")?.addEventListener("click", closeProfileEditForm);
   $("profileEditForm")?.addEventListener("submit", (e) => {
@@ -631,12 +686,20 @@ function bindEvents() {
 
   $("registerForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const registerForm = $("registerForm");
+    if (registerForm instanceof HTMLFormElement) clearFormErrors(registerForm);
     const firstName = String($("firstName")?.value || "").trim();
     const lastName = String($("lastName")?.value || "").trim();
     const email = toEmail($("email")?.value);
     const password = String($("password")?.value || "");
-    if (password.length < 6) return showToast("Password must be at least 6 characters.", "warning");
-    if (state.db.accounts.some((a) => a.email === email)) return showToast("Email is already in use.", "warning");
+    if (password.length < 6) {
+      setFieldError($("password"), "Password must be at least 6 characters.");
+      return showToast("Password must be at least 6 characters.", "warning");
+    }
+    if (state.db.accounts.some((a) => a.email === email)) {
+      setFieldError($("email"), "This email is already in use.");
+      return showToast("Email is already in use.", "warning");
+    }
     // New users are created unverified; login is blocked until verification is simulated.
     state.db.accounts.push(normalizeAccount({ id: Date.now(), firstName, lastName, email, password, role: "user", verified: false }));
     saveDB();
@@ -689,11 +752,14 @@ function bindEvents() {
 
     $("loginForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const loginForm = $("loginForm");
+    if (loginForm instanceof HTMLFormElement) clearFormErrors(loginForm);
     const email = toEmail($("loginEmail")?.value);
     const password = String($("loginPassword")?.value || "");
     // Auth gate: account must exist, password must match, and email must already be verified.
     const account = state.db.accounts.find((a) => a.email === email && a.password === password && a.verified === true);
     if (!account) {
+      setFieldError($("loginPassword"), "Invalid credentials or email not verified.");
       if ($("loginPassword")) $("loginPassword").value = "";
       return showToast("Invalid credentials or email not verified.", "danger");
     }
@@ -707,6 +773,8 @@ function bindEvents() {
   $("cancelAccountEditBtn")?.addEventListener("click", resetAccountForm);
   $("accountForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const accountForm = $("accountForm");
+    if (accountForm instanceof HTMLFormElement) clearFormErrors(accountForm);
     const currentUser = getCurrentUser();
     if (!currentUser || currentUser.role !== "admin") return showToast("Admin access required.", "danger");
 
@@ -719,16 +787,37 @@ function bindEvents() {
     const verified = Boolean($("accountVerifiedCheck")?.checked);
     const isEdit = Boolean(originalEmail);
 
-    if (!["user", "admin"].includes(role)) return showToast("Role must be user or admin.", "warning");
+    if (!firstName) {
+      setFieldError($("accountFirstNameInput"), "First name is required.");
+      return showToast("First name is required.", "warning");
+    }
+    if (!lastName) {
+      setFieldError($("accountLastNameInput"), "Last name is required.");
+      return showToast("Last name is required.", "warning");
+    }
+    if (!email) {
+      setFieldError($("accountEmailInput"), "Email is required.");
+      return showToast("Email is required.", "warning");
+    }
+    if (!["user", "admin"].includes(role)) {
+      setFieldError($("accountRoleSelect"), "Role must be user or admin.");
+      return showToast("Role must be user or admin.", "warning");
+    }
     // Enforce unique email while allowing the same value during edit.
-    if (state.db.accounts.some((a) => a.email === email && a.email !== originalEmail)) return showToast("Email is already in use.", "warning");
+    if (state.db.accounts.some((a) => a.email === email && a.email !== originalEmail)) {
+      setFieldError($("accountEmailInput"), "Email is already in use.");
+      return showToast("Email is already in use.", "warning");
+    }
 
     if (isEdit) {
       const target = state.db.accounts.find((a) => a.email === originalEmail);
       if (!target) return showToast("Account not found.", "danger");
       if (currentUser.email === target.email && role !== "admin") return showToast("Safety rule: admin cannot remove own admin role.", "warning");
       if (currentUser.email === target.email && email !== originalEmail) return showToast("Safety rule: cannot change your own login email.", "warning");
-      if (password && password.length < 6) return showToast("Password must be at least 6 characters.", "warning");
+      if (password && password.length < 6) {
+        setFieldError($("accountPasswordInput"), "Password must be at least 6 characters.");
+        return showToast("Password must be at least 6 characters.", "warning");
+      }
       const previousEmail = target.email;
 
       target.firstName = firstName;
@@ -756,7 +845,10 @@ function bindEvents() {
       return showToast("Account updated.", "success");
     }
 
-    if (password.length < 6) return showToast("Password must be at least 6 characters.", "warning");
+    if (password.length < 6) {
+      setFieldError($("accountPasswordInput"), "Password must be at least 6 characters.");
+      return showToast("Password must be at least 6 characters.", "warning");
+    }
     state.db.accounts.push(normalizeAccount({ id: Date.now(), firstName, lastName, email, password, role, verified }));
     saveDB();
     renderAdminViews(currentUser);
@@ -772,11 +864,23 @@ function bindEvents() {
   $("cancelDepartmentEditBtn")?.addEventListener("click", resetDepartmentForm);
   $("departmentForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const departmentForm = $("departmentForm");
+    if (departmentForm instanceof HTMLFormElement) clearFormErrors(departmentForm);
     const editId = Number($("departmentEditId")?.value || 0);
     const name = String($("departmentNameInput")?.value || "").trim();
     const description = String($("departmentDescriptionInput")?.value || "").trim();
-    if (!name || !description) return;
-    if (state.db.departments.some((d) => d.name.toLowerCase() === name.toLowerCase() && Number(d.id) !== editId)) return showToast("Department already exists.", "warning");
+    if (!name) {
+      setFieldError($("departmentNameInput"), "Department name is required.");
+      return;
+    }
+    if (!description) {
+      setFieldError($("departmentDescriptionInput"), "Department description is required.");
+      return;
+    }
+    if (state.db.departments.some((d) => d.name.toLowerCase() === name.toLowerCase() && Number(d.id) !== editId)) {
+      setFieldError($("departmentNameInput"), "Department already exists.");
+      return showToast("Department already exists.", "warning");
+    }
     if (editId) {
       const target = state.db.departments.find((d) => Number(d.id) === editId);
       if (!target) return showToast("Department not found.", "danger");
@@ -796,23 +900,40 @@ function bindEvents() {
   $("cancelEmployeeEditBtn")?.addEventListener("click", resetEmployeeForm);
   $("employeeForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const employeeForm = $("employeeForm");
+    if (employeeForm instanceof HTMLFormElement) clearFormErrors(employeeForm);
     const editId = String($("employeeEditId")?.value || "").trim();
     const employeeId = String($("employeeIdInput")?.value || "").trim();
     const userEmail = toEmail($("employeeUserEmailInput")?.value);
     const departmentId = Number($("employeeDepartmentSelect")?.value);
     const position = String($("employeePositionInput")?.value || "").trim();
     const hireDate = String($("employeeHireDateInput")?.value || "");
-    if (!userEmail || !departmentId || !position || !hireDate) return showToast("Complete all employee fields.", "warning");
+    if (!userEmail || !departmentId || !position || !hireDate) {
+      if (!userEmail) setFieldError($("employeeUserEmailInput"), "User email is required.");
+      if (!departmentId) setFieldError($("employeeDepartmentSelect"), "Department is required.");
+      if (!position) setFieldError($("employeePositionInput"), "Position is required.");
+      if (!hireDate) setFieldError($("employeeHireDateInput"), "Hire date is required.");
+      return showToast("Complete all employee fields.", "warning");
+    }
     // In edit mode, ID can be changed manually; in add mode ID is auto-generated.
-    if (editId && !employeeId) return showToast("Employee ID is required.", "warning");
+    if (editId && !employeeId) {
+      setFieldError($("employeeIdInput"), "Employee ID is required.");
+      return showToast("Employee ID is required.", "warning");
+    }
     // Employee rows must link to an existing non-admin user account.
     const linkedAccount = state.db.accounts.find((a) => a.email === userEmail && a.role !== "admin");
-    if (!linkedAccount) return showToast("User email must match an existing non-admin account.", "warning");
+    if (!linkedAccount) {
+      setFieldError($("employeeUserEmailInput"), "Use an existing non-admin account email.");
+      return showToast("User email must match an existing non-admin account.", "warning");
+    }
 
     if (editId) {
       const target = state.db.employees.find((e2) => String(e2.id) === editId);
       if (!target) return;
-      if (employeeId !== editId && state.db.employees.some((e2) => String(e2.id) === employeeId)) return showToast("Employee ID already exists.", "warning");
+      if (employeeId !== editId && state.db.employees.some((e2) => String(e2.id) === employeeId)) {
+        setFieldError($("employeeIdInput"), "Employee ID already exists.");
+        return showToast("Employee ID already exists.", "warning");
+      }
       target.id = employeeId;
       target.userId = Number(linkedAccount.id);
       target.userEmail = userEmail;
@@ -844,6 +965,8 @@ function bindEvents() {
 
   $("requestForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
+    const requestForm = $("requestForm");
+    if (requestForm instanceof HTMLFormElement) clearFormErrors(requestForm);
     const user = getCurrentUser();
     if (!user) { showToast("Login required.", "warning"); navigateTo("#/login"); return; }
     const type = String($("requestType")?.value || "Equipment");
@@ -851,8 +974,15 @@ function bindEvents() {
       const leaveStart = String($("leaveStartDate")?.value || "");
       const leaveEnd = String($("leaveEndDate")?.value || "");
       const leaveReason = String($("leaveReason")?.value || "").trim();
-      if (!leaveStart || !leaveEnd) return showToast("Start and end date are required for leave.", "warning");
-      if (new Date(leaveEnd) < new Date(leaveStart)) return showToast("Leave end date cannot be earlier than start date.", "warning");
+      if (!leaveStart || !leaveEnd) {
+        if (!leaveStart) setFieldError($("leaveStartDate"), "Start date is required.");
+        if (!leaveEnd) setFieldError($("leaveEndDate"), "End date is required.");
+        return showToast("Start and end date are required for leave.", "warning");
+      }
+      if (new Date(leaveEnd) < new Date(leaveStart)) {
+        setFieldError($("leaveEndDate"), "End date cannot be earlier than start date.");
+        return showToast("Leave end date cannot be earlier than start date.", "warning");
+      }
       state.db.requests.push(normalizeRequest({ id: Date.now(), employeeEmail: user.email, type, items: [], leaveStart, leaveEnd, leaveReason, status: "pending", createdAt: Date.now() }));
     } else {
       const rows = Array.from(document.querySelectorAll("#requestItemsContainer .request-item-row"));
@@ -861,7 +991,11 @@ function bindEvents() {
         quantity: Number(row.querySelector(".request-item-qty")?.value || 0)
       })).filter((i) => i.name && i.quantity > 0);
       // Ignore blank/invalid item rows; require at least one valid request item.
-      if (!items.length) return showToast("Add at least one valid item.", "warning");
+      if (!items.length) {
+        const firstNameInput = document.querySelector("#requestItemsContainer .request-item-name");
+        if (firstNameInput instanceof HTMLElement) setFieldError(firstNameInput, "Add at least one valid item.");
+        return showToast("Add at least one valid item.", "warning");
+      }
       state.db.requests.push(normalizeRequest({ id: Date.now(), employeeEmail: user.email, type, items, status: "pending", createdAt: Date.now() }));
     }
     saveDB();

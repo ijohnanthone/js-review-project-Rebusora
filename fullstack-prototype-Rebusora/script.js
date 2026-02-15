@@ -1,14 +1,20 @@
-﻿const KEYS = {
-  storage: "ipt_demo_v1",
+﻿const STORAGE_KEY = "ipt_demo_v1";
+
+// LocalStorage keys used by this prototype. Changing these names changes where data/session is read from.
+const KEYS = {
+  storage: STORAGE_KEY,
   legacyAccounts: "db_accounts",
   legacySession: "loggedInEmployee",
   authToken: "auth_token",
   unverified: "unverified_email"
 };
 
+// Hash routes mapped to section element IDs. This controls which page block is shown.
 const ROUTES = {
+  "#/": "homeSection",
   "#/home": "homeSection",
   "#/register": "registerSection",
+  "#/verify-email": "registerSection",
   "#/login": "loginSection",
   "#/profile": "profileSection",
   "#/requests": "requestsSection",
@@ -17,9 +23,10 @@ const ROUTES = {
   "#/departments": "departmentsSection"
 };
 
+// Seed data guarantees at least one admin account exists after first load/migration.
 const SEEDED_ADMINS = [
-  { id: 9001, firstName: "System", lastName: "Admin", email: "admin@app.local", password: "admin123", role: "admin", verified: true },
-  { id: 9002, firstName: "Team", lastName: "Manager", email: "manager@app.local", password: "manager123", role: "admin", verified: true }
+  { id: 1, firstName: "System", lastName: "Admin", email: "admin@example.com", password: "Password123!", role: "admin", verified: true },
+  { id: 2, firstName: "Local", lastName: "Admin", email: "admin@app.local", password: "admin123", role: "admin", verified: true }
 ];
 
 const SEEDED_DEPARTMENTS = [
@@ -27,18 +34,32 @@ const SEEDED_DEPARTMENTS = [
   { id: 2, name: "HR", description: "Human Resources" }
 ];
 
+// In-memory app state. Most UI actions mutate this object, then `saveDB()` persists it.
 const state = { db: { accounts: [], departments: [], employees: [], requests: [] } };
+window.db = state.db;
+let currentUser = null;
 const $ = (id) => document.getElementById(id);
 const toEmail = (v) => String(v || "").trim().toLowerCase();
 
 const normalizeAccount = (a) => ({ ...a, email: toEmail(a.email), role: a.role || "user", verified: typeof a.verified === "boolean" ? a.verified : true });
 const normalizeDepartment = (d) => ({ id: d.id || Date.now(), name: String(d.name || "").trim(), description: String(d.description || "").trim() });
-const normalizeEmployee = (e) => ({ id: e.id || Date.now(), userEmail: toEmail(e.userEmail), departmentId: Number(e.departmentId), position: String(e.position || "").trim(), hireDate: String(e.hireDate || "").trim() });
+const normalizeEmployee = (e) => ({
+  id: String(e.id || "").trim(),
+  userId: Number(e.userId || 0),
+  userEmail: toEmail(e.userEmail),
+  departmentId: Number(e.departmentId),
+  position: String(e.position || "").trim(),
+  hireDate: String(e.hireDate || "").trim()
+});
 const normalizeRequest = (r) => ({ id: r.id || Date.now(), employeeEmail: toEmail(r.employeeEmail), type: r.type || "Equipment", items: Array.isArray(r.items) ? r.items : [], status: r.status || "pending", createdAt: r.createdAt || Date.now() });
 
+// ===== Storage Helpers =====
+// Reads and parses JSON from localStorage. Returns `null` if missing or invalid.
 function readJSON(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
+// Convenience wrapper that ensures the storage value is an array.
 function readArray(key) { const v = readJSON(key); return Array.isArray(v) ? v : []; }
 
+// Removes duplicate accounts by normalized email and keeps first seen entry.
 function dedupeAccounts(accounts) {
   const seen = new Set();
   return accounts.filter((a) => {
@@ -48,11 +69,19 @@ function dedupeAccounts(accounts) {
   });
 }
 
+// Persists the whole in-memory database into the primary storage key.
+function saveToStorage() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(window.db));
+}
+
+// Saves current DB and keeps backward-compatible legacy account storage.
 function saveDB() {
-  localStorage.setItem(KEYS.storage, JSON.stringify(state.db));
+  saveToStorage();
   localStorage.setItem(KEYS.legacyAccounts, JSON.stringify(state.db.accounts));
 }
 
+// ===== UI Feedback =====
+// Shows a Bootstrap toast message for user feedback.
 function showToast(message, type = "info") {
   const container = $("appToastContainer");
   if (!container || !window.bootstrap) return;
@@ -70,20 +99,53 @@ function showToast(message, type = "info") {
   inst.show();
 }
 
-function initDB() {
-  const stored = readJSON(KEYS.storage) || {};
-  const migrated = dedupeAccounts([
-    ...readArray(KEYS.legacyAccounts).map(normalizeAccount),
-    ...readArray("employees").map((e) => normalizeAccount({ ...e, role: "user", verified: true })),
-    ...(Array.isArray(stored.accounts) ? stored.accounts.map(normalizeAccount) : [])
-  ]);
-  state.db.accounts = migrated.some((a) => a.role === "admin") ? migrated : [...SEEDED_ADMINS.map(normalizeAccount), ...migrated];
-  state.db.departments = Array.isArray(stored.departments) && stored.departments.length ? stored.departments.map(normalizeDepartment) : SEEDED_DEPARTMENTS.map(normalizeDepartment);
-  state.db.employees = Array.isArray(stored.employees) ? stored.employees.map(normalizeEmployee) : [];
-  state.db.requests = Array.isArray(stored.requests) ? stored.requests.map(normalizeRequest) : [];
-  saveDB();
+// ===== Data Bootstrap =====
+// Initializes state from LocalStorage and performs migration from older keys/formats.
+// Side effect: always writes normalized data back to storage through `saveDB()`.
+function loadFromStorage() {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+  } catch {
+    parsed = null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    state.db = {
+      accounts: SEEDED_ADMINS.map(normalizeAccount),
+      departments: SEEDED_DEPARTMENTS.map(normalizeDepartment),
+      employees: [],
+      requests: []
+    };
+    window.db = state.db;
+    saveToStorage();
+    return;
+  }
+
+  state.db = {
+    accounts: Array.isArray(parsed.accounts) ? dedupeAccounts(parsed.accounts.map(normalizeAccount)) : SEEDED_ADMINS.map(normalizeAccount),
+    departments: Array.isArray(parsed.departments) && parsed.departments.length ? parsed.departments.map(normalizeDepartment) : SEEDED_DEPARTMENTS.map(normalizeDepartment),
+    employees: Array.isArray(parsed.employees) ? parsed.employees.map(normalizeEmployee) : [],
+    requests: Array.isArray(parsed.requests) ? parsed.requests.map(normalizeRequest) : []
+  };
+
+  SEEDED_ADMINS.forEach((seed) => {
+    if (!state.db.accounts.some((a) => a.email === seed.email)) {
+      state.db.accounts = [normalizeAccount(seed), ...state.db.accounts];
+    }
+  });
+
+  window.db = state.db;
+  saveToStorage();
 }
 
+// Public bootstrap helper to initialize app data.
+function initDB() {
+  loadFromStorage();
+}
+
+// ===== Session/Auth =====
+// Resolves currently logged-in user from modern token or legacy session fallback.
 function getCurrentUser() {
   const byToken = state.db.accounts.find((a) => a.email === toEmail(localStorage.getItem(KEYS.authToken)));
   if (byToken) return byToken;
@@ -91,30 +153,71 @@ function getCurrentUser() {
   return legacy?.email ? state.db.accounts.find((a) => a.email === toEmail(legacy.email)) || null : null;
 }
 
+// Stores active session in both modern and legacy keys.
 function setSession(user) {
   localStorage.setItem(KEYS.authToken, user.email);
   localStorage.setItem(KEYS.legacySession, JSON.stringify(user));
 }
 
+// Clears all persisted session keys.
 function clearSession() {
   localStorage.removeItem(KEYS.authToken);
   localStorage.removeItem(KEYS.legacySession);
 }
 
-function setAuthState(user) {
-  const isAuth = Boolean(user);
+// Toggles authentication/role CSS flags and updates `currentUser`.
+function setAuthState(isAuth, user = null) {
+  currentUser = isAuth ? (user || currentUser) : null;
   document.body.classList.toggle("not-authenticated", !isAuth);
   document.body.classList.toggle("authenticated", isAuth);
   document.body.classList.toggle("is-authenticated", isAuth);
-  document.body.classList.toggle("is-admin", Boolean(isAuth && user.role === "admin"));
+  document.body.classList.toggle("is-admin", Boolean(isAuth && currentUser && currentUser.role === "admin"));
 }
 
-function renderProfile(user) {
+// ===== View Rendering =====
+// Renders the Profile section and wires profile edit action for the current account.
+function renderProfile(user = currentUser) {
   const node = $("profileMessage");
   if (!node) return;
-  node.textContent = user ? `Logged in as ${user.firstName} ${user.lastName} (${user.email}) [${user.role}]` : "No active user.";
+  const existingBtn = $("editProfileBtn");
+  if (!user) {
+    node.textContent = "No active user.";
+    if (existingBtn) existingBtn.remove();
+    return;
+  }
+  node.textContent = `Name: ${user.firstName} ${user.lastName} | Email: ${user.email} | Role: ${user.role}`;
+  if (existingBtn) return;
+  const btn = document.createElement("button");
+  btn.id = "editProfileBtn";
+  btn.type = "button";
+  btn.className = "btn btn-outline-primary btn-sm mt-2";
+  btn.textContent = "Edit Profile";
+  btn.addEventListener("click", () => {
+    const active = getCurrentUser();
+    if (!active) return showToast("Login required.", "warning");
+    const firstName = prompt("Update first name:", active.firstName || "");
+    if (firstName === null) return;
+    const lastName = prompt("Update last name:", active.lastName || "");
+    if (lastName === null) return;
+    const cleanFirst = String(firstName).trim();
+    const cleanLast = String(lastName).trim();
+    if (!cleanFirst || !cleanLast) return showToast("First and last name are required.", "warning");
+
+    const target = state.db.accounts.find((a) => a.email === active.email);
+    if (!target) return showToast("Account not found.", "danger");
+    target.firstName = cleanFirst;
+    target.lastName = cleanLast;
+    saveDB();
+    setSession(target);
+    setAuthState(true, target);
+    renderProfile(target);
+    if (target.role === "admin") renderAdminViews(target);
+    showToast("Profile updated.", "success");
+  });
+  node.insertAdjacentElement("afterend", btn);
 }
 
+// Shows/hides inline email verification helper based on pending verification state.
 function renderVerifyBlock() {
   const box = $("verifyInlineBox");
   const msg = $("verifyEmailMessage");
@@ -128,19 +231,25 @@ function renderVerifyBlock() {
     return;
   }
   box.style.display = "block";
-  msg.textContent = `Pending verification for: ${pending}`;
+  msg.textContent = `Verification sent to ${pending}`;
   btn.disabled = false;
 }
 
-function normalizeHash(hash) { return ROUTES[hash] ? hash : "#/home"; }
+// Returns a valid route hash, defaulting to home when route is unknown.
+function normalizeHash(hash) { return ROUTES[hash] ? hash : "#/"; }
+// Updates browser hash to trigger route navigation.
+function navigateTo(hash) { window.location.hash = hash; }
+// Route guard that blocks unauthenticated and non-admin users from protected/admin pages.
 function guardHash(hash, user) {
   const protectedRoutes = new Set(["#/profile", "#/requests", "#/employees", "#/accounts", "#/departments"]);
   const adminRoutes = new Set(["#/employees", "#/accounts", "#/departments"]);
-  if (protectedRoutes.has(hash) && !user) return "#/home";
-  if (adminRoutes.has(hash) && user && user.role !== "admin") return "#/home";
+  if (protectedRoutes.has(hash) && !user) return "#/";
+  if (adminRoutes.has(hash) && user && user.role !== "admin") return "#/";
   return hash;
 }
 
+// ===== Navigation/Route UI =====
+// Highlights the active page section and current nav link.
 function setActiveRoute(hash) {
   document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
   const pageId = ROUTES[hash];
@@ -150,15 +259,19 @@ function setActiveRoute(hash) {
   if (link) link.classList.add("route-active");
 }
 
+// Returns display name text for an account email. Used by list/table rendering.
 function accountDisplayName(email) {
   const acc = state.db.accounts.find((a) => a.email === email);
   return acc ? `${acc.firstName || ""} ${acc.lastName || ""} (${acc.email})`.trim() : email;
 }
 
+// Looks up readable department name from department id.
 function departmentNameById(id) {
   return state.db.departments.find((d) => Number(d.id) === Number(id))?.name || "Unknown";
 }
 
+// Renders account rows and binds per-row actions.
+// Side effects: can edit account data, reset passwords, and delete linked account/employee data.
 function renderAccountsTable(currentUser) {
   const tbody = $("accountsTableBody");
   if (!tbody) return;
@@ -190,6 +303,12 @@ function renderAccountsTable(currentUser) {
   });
 }
 
+// Thin wrapper for account list rendering to keep naming consistent.
+function renderAccountsList(user) {
+  renderAccountsTable(user);
+}
+
+// Clears the account form inputs and edit state.
 function resetAccountForm() {
   if ($("accountEditEmail")) $("accountEditEmail").value = "";
   if ($("accountFirstNameInput")) $("accountFirstNameInput").value = "";
@@ -200,6 +319,7 @@ function resetAccountForm() {
   if ($("accountVerifiedCheck")) $("accountVerifiedCheck").checked = false;
 }
 
+// Loads account data into the account form for editing.
 function fillAccountForm(a) {
   if ($("accountEditEmail")) $("accountEditEmail").value = a.email;
   if ($("accountFirstNameInput")) $("accountFirstNameInput").value = a.firstName || "";
@@ -210,6 +330,7 @@ function fillAccountForm(a) {
   if ($("accountVerifiedCheck")) $("accountVerifiedCheck").checked = Boolean(a.verified);
 }
 
+// Renders departments list and binds edit/delete row actions.
 function renderDepartmentsTable() {
   const tbody = $("departmentsTableBody");
   if (!tbody) return;
@@ -229,18 +350,21 @@ function renderDepartmentsTable() {
   }));
 }
 
+// Clears department form values and edit id state.
 function resetDepartmentForm() {
   if ($("departmentEditId")) $("departmentEditId").value = "";
   if ($("departmentNameInput")) $("departmentNameInput").value = "";
   if ($("departmentDescriptionInput")) $("departmentDescriptionInput").value = "";
 }
 
+// Loads selected department data into the department form.
 function fillDepartmentForm(d) {
   if ($("departmentEditId")) $("departmentEditId").value = String(d.id);
   if ($("departmentNameInput")) $("departmentNameInput").value = d.name;
   if ($("departmentDescriptionInput")) $("departmentDescriptionInput").value = d.description || "";
 }
 
+// Populates employee form options from current accounts and departments.
 function populateEmployeeOptions() {
   const emails = $("employeeUserEmailOptions");
   const dept = $("employeeDepartmentSelect");
@@ -249,31 +373,52 @@ function populateEmployeeOptions() {
   dept.innerHTML = state.db.departments.map((d) => `<option value="${d.id}">${d.name}</option>`).join("");
 }
 
+// Calculates next employee ID from existing employee data (highest numeric suffix + 1).
+function getNextEmployeeId() {
+  const ids = state.db.employees.map((e) => String(e.id || "").trim()).filter(Boolean);
+  const numericParts = ids.map((id) => {
+    const match = id.match(/(\d+)$/);
+    return match ? Number(match[1]) : null;
+  }).filter((n) => Number.isFinite(n));
+  const next = (numericParts.length ? Math.max(...numericParts) : 0) + 1;
+  const allNumeric = ids.length > 0 && ids.every((id) => /^\d+$/.test(id));
+  if (allNumeric) return String(next);
+  return `EMP-${String(next).padStart(3, "0")}`;
+}
+
+// Clears employee form values and edit state.
 function resetEmployeeForm() {
   if ($("employeeEditId")) $("employeeEditId").value = "";
-  if ($("employeeIdInput")) $("employeeIdInput").value = "";
+  if ($("employeeIdInput")) {
+    $("employeeIdInput").value = getNextEmployeeId();
+    $("employeeIdInput").readOnly = true;
+  }
   if ($("employeeUserEmailInput")) $("employeeUserEmailInput").value = "";
   if ($("employeePositionInput")) $("employeePositionInput").value = "";
   if ($("employeeHireDateInput")) $("employeeHireDateInput").value = "";
   if ($("employeeDepartmentSelect") && $("employeeDepartmentSelect").options.length > 0) $("employeeDepartmentSelect").selectedIndex = 0;
 }
 
+// Renders employees list and binds edit/delete actions for each row.
 function renderEmployeesTable() {
   const tbody = $("employeesTableBody");
   if (!tbody) return;
-  tbody.innerHTML = state.db.employees.map((e) => `<tr><td>${e.id}</td><td>${accountDisplayName(e.userEmail)}</td><td>${e.position}</td><td>${departmentNameById(e.departmentId)}</td><td>${e.hireDate || ""}</td><td><button class="btn btn-sm btn-outline-success me-1" data-emp-action="edit" data-emp-id="${e.id}">Edit</button><button class="btn btn-sm btn-outline-danger" data-emp-action="delete" data-emp-id="${e.id}">Delete</button></td></tr>`).join("");
+  tbody.innerHTML = state.db.employees.map((e) => `<tr><td>${e.id}</td><td>${e.userEmail}</td><td>${e.position}</td><td>${departmentNameById(e.departmentId)}</td><td>${e.hireDate || ""}</td><td><button class="btn btn-sm btn-outline-success me-1" data-emp-action="edit" data-emp-id="${e.id}">Edit</button><button class="btn btn-sm btn-outline-danger" data-emp-action="delete" data-emp-id="${e.id}">Delete</button></td></tr>`).join("");
   tbody.querySelectorAll("button[data-emp-action]").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.getAttribute("data-emp-action");
-    const id = Number(btn.getAttribute("data-emp-id"));
-    const row = state.db.employees.find((e) => Number(e.id) === id);
+    const id = String(btn.getAttribute("data-emp-id") || "").trim();
+    const row = state.db.employees.find((e) => String(e.id) === id);
     if (!row) return;
     if (action === "delete") {
-      state.db.employees = state.db.employees.filter((e) => Number(e.id) !== id);
+      state.db.employees = state.db.employees.filter((e) => String(e.id) !== id);
       saveDB();
       return renderEmployeesTable();
     }
     if ($("employeeEditId")) $("employeeEditId").value = String(row.id);
-    if ($("employeeIdInput")) $("employeeIdInput").value = String(row.id);
+    if ($("employeeIdInput")) {
+      $("employeeIdInput").value = String(row.id);
+      $("employeeIdInput").readOnly = false;
+    }
     if ($("employeeUserEmailInput")) $("employeeUserEmailInput").value = row.userEmail;
     if ($("employeeDepartmentSelect")) $("employeeDepartmentSelect").value = String(row.departmentId);
     if ($("employeePositionInput")) $("employeePositionInput").value = row.position;
@@ -281,8 +426,10 @@ function renderEmployeesTable() {
   }));
 }
 
+// Maps request status to Bootstrap badge classes.
 function statusBadgeClass(status) { return status === "approved" ? "bg-success" : status === "rejected" ? "bg-danger" : "bg-warning text-dark"; }
 
+// Creates one dynamic request item row node used in request builder modal.
 function createRequestItemRow(item = { name: "", quantity: 1 }) {
   const row = document.createElement("div");
   row.className = "row g-2 align-items-center mb-2 request-item-row";
@@ -290,6 +437,7 @@ function createRequestItemRow(item = { name: "", quantity: 1 }) {
   return row;
 }
 
+// Resets request modal fields to defaults and adds one starter item row.
 function resetRequestBuilder() {
   if ($("requestType")) $("requestType").value = "Equipment";
   const container = $("requestItemsContainer");
@@ -298,6 +446,7 @@ function resetRequestBuilder() {
   container.appendChild(createRequestItemRow());
 }
 
+// Renders request history for the currently logged-in non-admin/admin user.
 function renderMyRequests(user) {
   const tbody = $("requestsTableBody");
   if (!tbody) return;
@@ -309,6 +458,7 @@ function renderMyRequests(user) {
   }).join("");
 }
 
+// Renders full request table for admins and wires approve/reject actions.
 function renderAdminRequests(user) {
   const tbody = $("adminRequestsTableBody");
   if (!tbody) return;
@@ -331,38 +481,45 @@ function renderAdminRequests(user) {
   }));
 }
 
+// Renders all admin-managed views together (accounts, departments, employees).
 function renderAdminViews(user) {
-  renderAccountsTable(user);
+  renderAccountsList(user);
   renderDepartmentsTable();
   populateEmployeeOptions();
   renderEmployeesTable();
+  if (!$("employeeEditId")?.value) resetEmployeeForm();
 }
 
+// Runs per-route view rendering hooks after route activation.
 function renderRoute(hash, user) {
-  if (hash === "#/register") renderVerifyBlock();
+  if (hash === "#/register" || hash === "#/verify-email") renderVerifyBlock();
   if (hash === "#/profile") renderProfile(user);
   if (hash === "#/requests") { renderMyRequests(user); renderAdminRequests(user); }
   if (hash === "#/employees" || hash === "#/accounts" || hash === "#/departments") renderAdminViews(user);
 }
 
+// Central router: resolves user/session, applies guards, then renders view.
 function handleRouting() {
   const user = getCurrentUser();
-  setAuthState(user);
-  renderProfile(user);
-  const hash = normalizeHash(window.location.hash || "#/home");
-  const guarded = guardHash(hash, user);
-  if (guarded !== hash) { window.location.hash = guarded; return; }
+  setAuthState(Boolean(user), user);
+  renderProfile(currentUser);
+  const hash = normalizeHash(window.location.hash || "#/");
+  const guarded = guardHash(hash, currentUser);
+  if (guarded !== hash) { navigateTo(guarded); return; }
   setActiveRoute(hash);
-  renderRoute(hash, user);
+  renderRoute(hash, currentUser);
 }
 
+// Logs user out and returns UI to home state.
 function logout() {
   clearSession();
-  setAuthState(null);
+  setAuthState(false);
   renderProfile(null);
-  window.location.hash = "#/home";
+  navigateTo("#/");
 }
 
+// ===== Event Bindings =====
+// Central event wiring for forms/buttons. Most create/update/delete behavior starts here.
 function bindEvents() {
   $("logoutLink")?.addEventListener("click", (e) => { e.preventDefault(); logout(); });
 
@@ -372,7 +529,7 @@ function bindEvents() {
     const lastName = String($("lastName")?.value || "").trim();
     const email = toEmail($("email")?.value);
     const password = String($("password")?.value || "");
-    if (password.length <= 6) return showToast("Password must be longer than 6 characters.", "warning");
+    if (password.length < 6) return showToast("Password must be at least 6 characters.", "warning");
     if (state.db.accounts.some((a) => a.email === email)) return showToast("Email is already in use.", "warning");
     state.db.accounts.push(normalizeAccount({ id: Date.now(), firstName, lastName, email, password, role: "user", verified: false }));
     saveDB();
@@ -380,7 +537,7 @@ function bindEvents() {
     $("registerForm")?.reset();
     renderVerifyBlock();
     showToast("Registration saved. Please verify your email.", "info");
-    window.location.hash = "#/register";
+    navigateTo("#/verify-email");
   });
 
   $("simulateVerifyBtn")?.addEventListener("click", () => {
@@ -397,28 +554,22 @@ function bindEvents() {
     localStorage.removeItem(KEYS.unverified);
     renderVerifyBlock();
     showToast("Email verified. Please login.", "success");
-    window.location.hash = "#/login";
+    navigateTo("#/login");
   });
 
-  $("loginForm")?.addEventListener("submit", (e) => {
+    $("loginForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const email = toEmail($("loginEmail")?.value);
     const password = String($("loginPassword")?.value || "");
-    const account = state.db.accounts.find((a) => a.email === email && a.password === password);
+    const account = state.db.accounts.find((a) => a.email === email && a.password === password && a.verified === true);
     if (!account) {
       if ($("loginPassword")) $("loginPassword").value = "";
-      return showToast("Invalid email or password.", "danger");
-    }
-    if (!account.verified) {
-      localStorage.setItem(KEYS.unverified, account.email);
-      renderVerifyBlock();
-      showToast("Please verify your email before login.", "warning");
-      window.location.hash = "#/register";
-      return;
+      return showToast("Invalid credentials or email not verified.", "danger");
     }
     setSession(account);
+    setAuthState(true, account);
     $("loginForm")?.reset();
-    window.location.hash = account.role === "admin" ? "#/employees" : "#/profile";
+    navigateTo("#/profile");
   });
 
   $("addAccountBtn")?.addEventListener("click", resetAccountForm);
@@ -446,6 +597,7 @@ function bindEvents() {
       if (currentUser.email === target.email && role !== "admin") return showToast("Safety rule: admin cannot remove own admin role.", "warning");
       if (currentUser.email === target.email && email !== originalEmail) return showToast("Safety rule: cannot change your own login email.", "warning");
       if (password && password.length < 6) return showToast("Password must be at least 6 characters.", "warning");
+      const previousEmail = target.email;
 
       target.firstName = firstName;
       target.lastName = lastName;
@@ -453,6 +605,17 @@ function bindEvents() {
       target.role = role;
       target.verified = verified;
       if (password) target.password = password;
+      if (email !== previousEmail) {
+        state.db.employees.forEach((e2) => {
+          if (e2.userEmail === previousEmail) e2.userEmail = email;
+        });
+        state.db.requests.forEach((r) => {
+          if (r.employeeEmail === previousEmail) r.employeeEmail = email;
+        });
+        if (localStorage.getItem(KEYS.unverified) === previousEmail) {
+          localStorage.setItem(KEYS.unverified, email);
+        }
+      }
       if (currentUser.email === target.email) setSession(target);
       saveDB();
       renderAdminViews(currentUser);
@@ -468,7 +631,11 @@ function bindEvents() {
     showToast("Account created.", "success");
   });
 
-  $("addDepartmentBtn")?.addEventListener("click", resetDepartmentForm);
+  $("addDepartmentBtn")?.addEventListener("click", () => {
+    resetDepartmentForm();
+    if ($("departmentNameInput")) $("departmentNameInput").focus();
+    showToast("Ready to add a new department.", "info");
+  });
   $("cancelDepartmentEditBtn")?.addEventListener("click", resetDepartmentForm);
   $("departmentForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -496,26 +663,31 @@ function bindEvents() {
   $("cancelEmployeeEditBtn")?.addEventListener("click", resetEmployeeForm);
   $("employeeForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
-    const editId = Number($("employeeEditId")?.value || 0);
+    const editId = String($("employeeEditId")?.value || "").trim();
+    const employeeId = String($("employeeIdInput")?.value || "").trim();
     const userEmail = toEmail($("employeeUserEmailInput")?.value);
     const departmentId = Number($("employeeDepartmentSelect")?.value);
     const position = String($("employeePositionInput")?.value || "").trim();
     const hireDate = String($("employeeHireDateInput")?.value || "");
     if (!userEmail || !departmentId || !position || !hireDate) return showToast("Complete all employee fields.", "warning");
-    if (!state.db.accounts.find((a) => a.email === userEmail && a.role !== "admin")) return showToast("User email must match an existing non-admin account.", "warning");
+    if (editId && !employeeId) return showToast("Employee ID is required.", "warning");
+    const linkedAccount = state.db.accounts.find((a) => a.email === userEmail && a.role !== "admin");
+    if (!linkedAccount) return showToast("User email must match an existing non-admin account.", "warning");
 
     if (editId) {
-      const target = state.db.employees.find((e2) => Number(e2.id) === editId);
+      const target = state.db.employees.find((e2) => String(e2.id) === editId);
       if (!target) return;
+      if (employeeId !== editId && state.db.employees.some((e2) => String(e2.id) === employeeId)) return showToast("Employee ID already exists.", "warning");
+      target.id = employeeId;
+      target.userId = Number(linkedAccount.id);
       target.userEmail = userEmail;
       target.departmentId = departmentId;
       target.position = position;
       target.hireDate = hireDate;
     } else {
-      if (state.db.employees.some((e2) => e2.userEmail === userEmail)) return showToast("User already linked. Use Edit.", "warning");
-      const id = Date.now();
-      state.db.employees.push(normalizeEmployee({ id, userEmail, departmentId, position, hireDate }));
-      if ($("employeeIdInput")) $("employeeIdInput").value = String(id);
+      const nextEmployeeId = getNextEmployeeId();
+      if (state.db.employees.some((e2) => String(e2.id) === nextEmployeeId)) return showToast("Employee ID already exists.", "warning");
+      state.db.employees.push(normalizeEmployee({ id: nextEmployeeId, userId: Number(linkedAccount.id), userEmail, departmentId, position, hireDate }));
     }
     saveDB();
     renderEmployeesTable();
@@ -536,7 +708,7 @@ function bindEvents() {
   $("requestForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const user = getCurrentUser();
-    if (!user) { showToast("Login required.", "warning"); window.location.hash = "#/login"; return; }
+    if (!user) { showToast("Login required.", "warning"); navigateTo("#/login"); return; }
     const rows = Array.from(document.querySelectorAll("#requestItemsContainer .request-item-row"));
     const items = rows.map((row) => ({
       name: String(row.querySelector(".request-item-name")?.value || "").trim(),
@@ -556,23 +728,16 @@ function bindEvents() {
   });
 }
 
+// Compatibility wrapper retained for older calls that still reference `handleRoute`.
 function handleRoute() {
-  const user = getCurrentUser();
-  setAuthState(user);
-  renderProfile(user);
-  const hash = normalizeHash(window.location.hash || "#/home");
-  const safeHash = guardHash(hash, user);
-  if (safeHash !== hash) { window.location.hash = safeHash; return; }
-  setActiveRoute(hash);
-  if (hash === "#/register") renderVerifyBlock();
-  if (hash === "#/requests") { renderMyRequests(user); renderAdminRequests(user); }
-  if (hash === "#/employees" || hash === "#/accounts" || hash === "#/departments") renderAdminViews(user);
+  handleRouting();
 }
 
+// Boot sequence: load data, attach events, and sync UI to current hash route.
 document.addEventListener("DOMContentLoaded", () => {
   initDB();
   bindEvents();
-  window.addEventListener("hashchange", handleRoute);
-  if (!window.location.hash) window.location.hash = "#/home";
-  handleRoute();
+  window.addEventListener("hashchange", handleRouting);
+  if (!window.location.hash) navigateTo("#/");
+  handleRouting();
 });

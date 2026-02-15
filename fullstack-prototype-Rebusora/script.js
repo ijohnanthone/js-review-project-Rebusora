@@ -487,6 +487,7 @@ function renderAdminViews(user) {
   renderDepartmentsTable();
   populateEmployeeOptions();
   renderEmployeesTable();
+  // Keep add-mode form prefilled with the next auto ID whenever admin panels refresh.
   if (!$("employeeEditId")?.value) resetEmployeeForm();
 }
 
@@ -531,6 +532,7 @@ function bindEvents() {
     const password = String($("password")?.value || "");
     if (password.length < 6) return showToast("Password must be at least 6 characters.", "warning");
     if (state.db.accounts.some((a) => a.email === email)) return showToast("Email is already in use.", "warning");
+    // New users are created unverified; login is blocked until verification is simulated.
     state.db.accounts.push(normalizeAccount({ id: Date.now(), firstName, lastName, email, password, role: "user", verified: false }));
     saveDB();
     localStorage.setItem(KEYS.unverified, email);
@@ -561,6 +563,7 @@ function bindEvents() {
     e.preventDefault();
     const email = toEmail($("loginEmail")?.value);
     const password = String($("loginPassword")?.value || "");
+    // Auth gate: account must exist, password must match, and email must already be verified.
     const account = state.db.accounts.find((a) => a.email === email && a.password === password && a.verified === true);
     if (!account) {
       if ($("loginPassword")) $("loginPassword").value = "";
@@ -589,6 +592,7 @@ function bindEvents() {
     const isEdit = Boolean(originalEmail);
 
     if (!["user", "admin"].includes(role)) return showToast("Role must be user or admin.", "warning");
+    // Enforce unique email while allowing the same value during edit.
     if (state.db.accounts.some((a) => a.email === email && a.email !== originalEmail)) return showToast("Email is already in use.", "warning");
 
     if (isEdit) {
@@ -606,6 +610,7 @@ function bindEvents() {
       target.verified = verified;
       if (password) target.password = password;
       if (email !== previousEmail) {
+        // Keep cross-table links in sync when the account email changes.
         state.db.employees.forEach((e2) => {
           if (e2.userEmail === previousEmail) e2.userEmail = email;
         });
@@ -670,7 +675,9 @@ function bindEvents() {
     const position = String($("employeePositionInput")?.value || "").trim();
     const hireDate = String($("employeeHireDateInput")?.value || "");
     if (!userEmail || !departmentId || !position || !hireDate) return showToast("Complete all employee fields.", "warning");
+    // In edit mode, ID can be changed manually; in add mode ID is auto-generated.
     if (editId && !employeeId) return showToast("Employee ID is required.", "warning");
+    // Employee rows must link to an existing non-admin user account.
     const linkedAccount = state.db.accounts.find((a) => a.email === userEmail && a.role !== "admin");
     if (!linkedAccount) return showToast("User email must match an existing non-admin account.", "warning");
 
@@ -685,6 +692,7 @@ function bindEvents() {
       target.position = position;
       target.hireDate = hireDate;
     } else {
+      // Always compute next ID from current employee data to avoid manual ID mistakes.
       const nextEmployeeId = getNextEmployeeId();
       if (state.db.employees.some((e2) => String(e2.id) === nextEmployeeId)) return showToast("Employee ID already exists.", "warning");
       state.db.employees.push(normalizeEmployee({ id: nextEmployeeId, userId: Number(linkedAccount.id), userEmail, departmentId, position, hireDate }));
@@ -714,6 +722,7 @@ function bindEvents() {
       name: String(row.querySelector(".request-item-name")?.value || "").trim(),
       quantity: Number(row.querySelector(".request-item-qty")?.value || 0)
     })).filter((i) => i.name && i.quantity > 0);
+    // Ignore blank/invalid item rows; require at least one valid request item.
     if (!items.length) return showToast("Add at least one valid item.", "warning");
     state.db.requests.push(normalizeRequest({ id: Date.now(), employeeEmail: user.email, type: String($("requestType")?.value || "Equipment"), items, status: "pending", createdAt: Date.now() }));
     saveDB();

@@ -1,8 +1,7 @@
-﻿const STORAGE_KEY = "ipt_demo_v1";
+const STORAGE_KEY = "ipt_demo_v1";
 
 // LocalStorage keys used by this prototype. Changing these names changes where data/session is read from.
 const KEYS = {
-  storage: STORAGE_KEY,
   legacyAccounts: "db_accounts",
   legacySession: "loggedInEmployee",
   authToken: "auth_token",
@@ -66,9 +65,6 @@ const normalizeRequest = (r) => ({
 // ===== Storage Helpers =====
 // Reads and parses JSON from localStorage. Returns `null` if missing or invalid.
 function readJSON(key) { try { return JSON.parse(localStorage.getItem(key)); } catch { return null; } }
-// Convenience wrapper that ensures the storage value is an array.
-function readArray(key) { const v = readJSON(key); return Array.isArray(v) ? v : []; }
-
 // Removes duplicate accounts by normalized email and keeps first seen entry.
 function dedupeAccounts(accounts) {
   const seen = new Set();
@@ -314,12 +310,6 @@ function setActiveRoute(hash) {
   document.querySelectorAll(".nav-link").forEach((l) => l.classList.remove("route-active"));
   const link = document.querySelector(`.nav-link[href='${hash}']`);
   if (link) link.classList.add("route-active");
-}
-
-// Returns display name text for an account email. Used by list/table rendering.
-function accountDisplayName(email) {
-  const acc = state.db.accounts.find((a) => a.email === email);
-  return acc ? `${acc.firstName || ""} ${acc.lastName || ""} (${acc.email})`.trim() : email;
 }
 
 // Looks up readable department name from department id.
@@ -1008,11 +998,6 @@ function bindEvents() {
       if (modal) modal.hide();
     }
   });
-}
-
-// Compatibility wrapper retained for older calls that still reference `handleRoute`.
-function handleRoute() {
-  handleRouting();
 }
 
 // Boot sequence: load data, attach events, and sync UI to current hash route.

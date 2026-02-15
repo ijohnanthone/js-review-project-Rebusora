@@ -168,20 +168,6 @@
                 New Request
             </button>
 
-            <div class="table-responsive">
-                <table class="table table-sm table-striped mb-0">
-                    <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Items</th>
-                        <th>Status</th>
-                    </tr>
-                    </thead>
-                    <tbody id="requestsTableBody"></tbody>
-                </table>
-            </div>
-
             <div class="role-admin mt-4">
                 <h5>All Requests (Admin)</h5>
                 <div class="table-responsive">
@@ -191,7 +177,7 @@
                             <th>Requested By</th>
                             <th>Date</th>
                             <th>Type</th>
-                            <th>Items</th>
+                            <th>Details</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -221,11 +207,30 @@
                         </select>
                     </div>
 
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <strong>Items</strong>
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="addRequestItemBtn">Add Item</button>
+                    <div id="requestItemsBlock">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong>Items</strong>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="addRequestItemBtn">Add Item</button>
+                        </div>
+                        <div id="requestItemsContainer"></div>
                     </div>
-                    <div id="requestItemsContainer"></div>
+
+                    <div id="requestLeaveBlock" style="display:none;">
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label for="leaveStartDate" class="form-label">Start Date</label>
+                                <input id="leaveStartDate" type="date" class="form-control">
+                            </div>
+                            <div class="col-md-6">
+                                <label for="leaveEndDate" class="form-label">End Date</label>
+                                <input id="leaveEndDate" type="date" class="form-control">
+                            </div>
+                            <div class="col-12">
+                                <label for="leaveReason" class="form-label">Reason (Optional)</label>
+                                <input id="leaveReason" type="text" class="form-control" placeholder="Short reason for leave">
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>

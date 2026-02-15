@@ -51,7 +51,17 @@ const normalizeEmployee = (e) => ({
   position: String(e.position || "").trim(),
   hireDate: String(e.hireDate || "").trim()
 });
-const normalizeRequest = (r) => ({ id: r.id || Date.now(), employeeEmail: toEmail(r.employeeEmail), type: r.type || "Equipment", items: Array.isArray(r.items) ? r.items : [], status: r.status || "pending", createdAt: r.createdAt || Date.now() });
+const normalizeRequest = (r) => ({
+  id: r.id || Date.now(),
+  employeeEmail: toEmail(r.employeeEmail),
+  type: r.type || "Equipment",
+  items: Array.isArray(r.items) ? r.items : [],
+  leaveStart: String(r.leaveStart || "").trim(),
+  leaveEnd: String(r.leaveEnd || "").trim(),
+  leaveReason: String(r.leaveReason || "").trim(),
+  status: r.status || "pending",
+  createdAt: r.createdAt || Date.now()
+});
 
 // ===== Storage Helpers =====
 // Reads and parses JSON from localStorage. Returns `null` if missing or invalid.
@@ -441,6 +451,24 @@ function renderEmployeesTable() {
 // Maps request status to Bootstrap badge classes.
 function statusBadgeClass(status) { return status === "approved" ? "bg-success" : status === "rejected" ? "bg-danger" : "bg-warning text-dark"; }
 
+// Formats YYYY-MM-DD into a readable date label for request details.
+function formatHumanDate(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+// Calculates inclusive leave days between start and end dates.
+function leaveDayCount(start, end) {
+  const a = new Date(`${String(start || "").trim()}T00:00:00`);
+  const b = new Date(`${String(end || "").trim()}T00:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || b < a) return 0;
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((b - a) / msPerDay) + 1;
+}
+
 // Creates one dynamic request item row node used in request builder modal.
 function createRequestItemRow(item = { name: "", quantity: 1 }) {
   const row = document.createElement("div");
@@ -449,13 +477,55 @@ function createRequestItemRow(item = { name: "", quantity: 1 }) {
   return row;
 }
 
+// Toggles request modal fields between Equipment (items) and Leave (dates/reason).
+function toggleRequestTypeFields() {
+  const type = String($("requestType")?.value || "Equipment");
+  const itemsBlock = $("requestItemsBlock");
+  const leaveBlock = $("requestLeaveBlock");
+  if (itemsBlock) itemsBlock.style.display = type === "Leave" ? "none" : "block";
+  if (leaveBlock) leaveBlock.style.display = type === "Leave" ? "block" : "none";
+  const itemInputs = document.querySelectorAll("#requestItemsContainer .request-item-name, #requestItemsContainer .request-item-qty");
+  itemInputs.forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) return;
+    input.disabled = type === "Leave";
+  });
+  if ($("leaveStartDate")) {
+    $("leaveStartDate").disabled = type !== "Leave";
+    $("leaveStartDate").required = type === "Leave";
+  }
+  if ($("leaveEndDate")) {
+    $("leaveEndDate").disabled = type !== "Leave";
+    $("leaveEndDate").required = type === "Leave";
+  }
+  if ($("leaveReason")) $("leaveReason").disabled = type !== "Leave";
+  if ($("addRequestItemBtn")) $("addRequestItemBtn").disabled = type === "Leave";
+}
+
+// Builds human-readable details text for request tables.
+function requestDetailsText(r) {
+  if (r.type === "Leave") {
+    const startLabel = formatHumanDate(r.leaveStart);
+    const endLabel = formatHumanDate(r.leaveEnd);
+    const range = startLabel && endLabel ? `${startLabel} to ${endLabel}` : "No leave dates";
+    const days = leaveDayCount(r.leaveStart, r.leaveEnd);
+    const daysLabel = days > 0 ? ` (${days} day${days > 1 ? "s" : ""})` : "";
+    const reason = r.leaveReason ? ` | Reason: ${r.leaveReason}` : "";
+    return `${range}${daysLabel}${reason}`;
+  }
+  return r.items.map((i) => `${i.name} x${i.quantity}`).join(", ");
+}
+
 // Resets request modal fields to defaults and adds one starter item row.
 function resetRequestBuilder() {
   if ($("requestType")) $("requestType").value = "Equipment";
   const container = $("requestItemsContainer");
+  if ($("leaveStartDate")) $("leaveStartDate").value = "";
+  if ($("leaveEndDate")) $("leaveEndDate").value = "";
+  if ($("leaveReason")) $("leaveReason").value = "";
   if (!container) return;
   container.innerHTML = "";
   container.appendChild(createRequestItemRow());
+  toggleRequestTypeFields();
 }
 
 // Renders request history for the currently logged-in non-admin/admin user.
@@ -465,8 +535,8 @@ function renderMyRequests(user) {
   tbody.innerHTML = "";
   if (!user) return;
   tbody.innerHTML = state.db.requests.filter((r) => r.employeeEmail === user.email).sort((a, b) => Number(b.createdAt) - Number(a.createdAt)).map((r) => {
-    const items = r.items.map((i) => `${i.name} x${i.quantity}`).join(", ");
-    return `<tr><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${items}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td></tr>`;
+    const details = requestDetailsText(r);
+    return `<tr><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${details}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td></tr>`;
   }).join("");
 }
 
@@ -477,8 +547,8 @@ function renderAdminRequests(user) {
   tbody.innerHTML = "";
   if (!user || user.role !== "admin") return;
   tbody.innerHTML = state.db.requests.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt)).map((r) => {
-    const items = r.items.map((i) => `${i.name} x${i.quantity}`).join(", ");
-    return `<tr><td>${r.employeeEmail}</td><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${items}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td><td><button class="btn btn-sm btn-outline-success me-1" data-request-action="approve" data-request-id="${r.id}">Approve</button><button class="btn btn-sm btn-outline-danger" data-request-action="reject" data-request-id="${r.id}">Reject</button></td></tr>`;
+    const details = requestDetailsText(r);
+    return `<tr><td>${r.employeeEmail}</td><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${details}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td><td><button class="btn btn-sm btn-outline-success me-1" data-request-action="approve" data-request-id="${r.id}">Approve</button><button class="btn btn-sm btn-outline-danger" data-request-action="reject" data-request-id="${r.id}">Reject</button></td></tr>`;
   }).join("");
   tbody.querySelectorAll("button[data-request-action]").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.getAttribute("data-request-action");
@@ -762,6 +832,7 @@ function bindEvents() {
   });
 
   $("openRequestModalBtn")?.addEventListener("click", resetRequestBuilder);
+  $("requestType")?.addEventListener("change", toggleRequestTypeFields);
   $("addRequestItemBtn")?.addEventListener("click", () => $("requestItemsContainer")?.appendChild(createRequestItemRow()));
   $("requestItemsContainer")?.addEventListener("click", (e) => {
     const target = e.target;
@@ -775,14 +846,24 @@ function bindEvents() {
     e.preventDefault();
     const user = getCurrentUser();
     if (!user) { showToast("Login required.", "warning"); navigateTo("#/login"); return; }
-    const rows = Array.from(document.querySelectorAll("#requestItemsContainer .request-item-row"));
-    const items = rows.map((row) => ({
-      name: String(row.querySelector(".request-item-name")?.value || "").trim(),
-      quantity: Number(row.querySelector(".request-item-qty")?.value || 0)
-    })).filter((i) => i.name && i.quantity > 0);
-    // Ignore blank/invalid item rows; require at least one valid request item.
-    if (!items.length) return showToast("Add at least one valid item.", "warning");
-    state.db.requests.push(normalizeRequest({ id: Date.now(), employeeEmail: user.email, type: String($("requestType")?.value || "Equipment"), items, status: "pending", createdAt: Date.now() }));
+    const type = String($("requestType")?.value || "Equipment");
+    if (type === "Leave") {
+      const leaveStart = String($("leaveStartDate")?.value || "");
+      const leaveEnd = String($("leaveEndDate")?.value || "");
+      const leaveReason = String($("leaveReason")?.value || "").trim();
+      if (!leaveStart || !leaveEnd) return showToast("Start and end date are required for leave.", "warning");
+      if (new Date(leaveEnd) < new Date(leaveStart)) return showToast("Leave end date cannot be earlier than start date.", "warning");
+      state.db.requests.push(normalizeRequest({ id: Date.now(), employeeEmail: user.email, type, items: [], leaveStart, leaveEnd, leaveReason, status: "pending", createdAt: Date.now() }));
+    } else {
+      const rows = Array.from(document.querySelectorAll("#requestItemsContainer .request-item-row"));
+      const items = rows.map((row) => ({
+        name: String(row.querySelector(".request-item-name")?.value || "").trim(),
+        quantity: Number(row.querySelector(".request-item-qty")?.value || 0)
+      })).filter((i) => i.name && i.quantity > 0);
+      // Ignore blank/invalid item rows; require at least one valid request item.
+      if (!items.length) return showToast("Add at least one valid item.", "warning");
+      state.db.requests.push(normalizeRequest({ id: Date.now(), employeeEmail: user.email, type, items, status: "pending", createdAt: Date.now() }));
+    }
     saveDB();
     renderMyRequests(user);
     renderAdminRequests(user);

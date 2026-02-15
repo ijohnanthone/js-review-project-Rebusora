@@ -543,20 +543,43 @@ function bindEvents() {
   });
 
   $("simulateVerifyBtn")?.addEventListener("click", () => {
+    const btn = $("simulateVerifyBtn");
+    const msg = $("verifyEmailMessage");
+    if (!btn) return;
     const pending = localStorage.getItem(KEYS.unverified);
     if (!pending) return showToast("No pending verification.", "warning");
-    const target = state.db.accounts.find((a) => a.email === toEmail(pending));
-    if (!target) {
+    const originalButtonHtml = btn.innerHTML;
+    const originalMessage = msg?.textContent || "";
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Verifying...`;
+    if (msg) msg.textContent = `Verifying ${pending}...`;
+
+    // Simulate email verification processing so users get visual feedback.
+    window.setTimeout(() => {
+      const target = state.db.accounts.find((a) => a.email === toEmail(pending));
+      if (!target) {
+        localStorage.removeItem(KEYS.unverified);
+        renderVerifyBlock();
+        showToast("Account not found.", "danger");
+        if ($("simulateVerifyBtn")) {
+          $("simulateVerifyBtn").innerHTML = originalButtonHtml;
+          $("simulateVerifyBtn").disabled = false;
+        }
+        if ($("verifyEmailMessage")) $("verifyEmailMessage").textContent = originalMessage;
+        return;
+      }
+
+      target.verified = true;
+      saveDB();
       localStorage.removeItem(KEYS.unverified);
       renderVerifyBlock();
-      return showToast("Account not found.", "danger");
-    }
-    target.verified = true;
-    saveDB();
-    localStorage.removeItem(KEYS.unverified);
-    renderVerifyBlock();
-    showToast("Email verified. Please login.", "success");
-    navigateTo("#/login");
+      showToast("Email verified. Please login.", "success");
+      if ($("simulateVerifyBtn")) {
+        $("simulateVerifyBtn").innerHTML = originalButtonHtml;
+        $("simulateVerifyBtn").disabled = false;
+      }
+      navigateTo("#/login");
+    }, 1200);
   });
 
     $("loginForm")?.addEventListener("submit", (e) => {

@@ -1,3 +1,4 @@
+// Primary LocalStorage key where the normalized app database is persisted.
 const STORAGE_KEY = "ipt_demo_v1";
 
 // LocalStorage keys used by this prototype. Changing these names changes where data/session is read from.
@@ -28,6 +29,7 @@ const SEEDED_ADMINS = [
   { id: 2, firstName: "Local", lastName: "Admin", email: "admin@app.local", password: "admin123", role: "admin", verified: true }
 ];
 
+// Default departments inserted during first-time initialization.
 const SEEDED_DEPARTMENTS = [
   { id: 1, name: "Engineering", description: "Software team" },
   { id: 2, name: "HR", description: "Human Resources" }
@@ -35,11 +37,16 @@ const SEEDED_DEPARTMENTS = [
 
 // In-memory app state. Most UI actions mutate this object, then `saveDB()` persists it.
 const state = { db: { accounts: [], departments: [], employees: [], requests: [] } };
+// Kept for debugging/legacy references so existing code can use `window.db`.
 window.db = state.db;
+// Holds the currently authenticated account object for UI rendering and guards.
 let currentUser = null;
+// Short helper to fetch DOM elements by id.
 const $ = (id) => document.getElementById(id);
+// Canonical email normalization used before storing/comparing account emails.
 const toEmail = (v) => String(v || "").trim().toLowerCase();
 
+// Data normalizers enforce stable object shapes and default values across migrations/forms.
 const normalizeAccount = (a) => ({ ...a, email: toEmail(a.email), role: a.role || "user", verified: typeof a.verified === "boolean" ? a.verified : true });
 const normalizeDepartment = (d) => ({ id: d.id || Date.now(), name: String(d.name || "").trim(), description: String(d.description || "").trim() });
 const normalizeEmployee = (e) => ({
@@ -361,6 +368,8 @@ function renderAccountsList(user) {
 
 // Clears the account form inputs and edit state.
 function resetAccountForm() {
+  const form = $("accountForm");
+  if (form instanceof HTMLFormElement) clearFormErrors(form);
   if ($("accountEditEmail")) $("accountEditEmail").value = "";
   if ($("accountFirstNameInput")) $("accountFirstNameInput").value = "";
   if ($("accountLastNameInput")) $("accountLastNameInput").value = "";
@@ -407,6 +416,8 @@ function renderDepartmentsTable() {
 
 // Clears department form values and edit id state.
 function resetDepartmentForm() {
+  const form = $("departmentForm");
+  if (form instanceof HTMLFormElement) clearFormErrors(form);
   if ($("departmentEditId")) $("departmentEditId").value = "";
   if ($("departmentNameInput")) $("departmentNameInput").value = "";
   if ($("departmentDescriptionInput")) $("departmentDescriptionInput").value = "";
@@ -443,6 +454,8 @@ function getNextEmployeeId() {
 
 // Clears employee form values and edit state.
 function resetEmployeeForm() {
+  const form = $("employeeForm");
+  if (form instanceof HTMLFormElement) clearFormErrors(form);
   if ($("employeeEditId")) $("employeeEditId").value = "";
   if ($("employeeIdInput")) {
     $("employeeIdInput").value = getNextEmployeeId();
@@ -554,6 +567,8 @@ function requestDetailsText(r) {
 
 // Resets request modal fields to defaults and adds one starter item row.
 function resetRequestBuilder() {
+  const form = $("requestForm");
+  if (form instanceof HTMLFormElement) clearFormErrors(form);
   if ($("requestType")) $("requestType").value = "Equipment";
   const container = $("requestItemsContainer");
   if ($("leaveStartDate")) $("leaveStartDate").value = "";
@@ -565,13 +580,18 @@ function resetRequestBuilder() {
   toggleRequestTypeFields();
 }
 
-// Renders request history for the currently logged-in non-admin/admin user.
+// Renders request history for the currently logged-in user.
 function renderMyRequests(user) {
   const tbody = $("requestsTableBody");
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!user) return;
-  tbody.innerHTML = state.db.requests.filter((r) => r.employeeEmail === user.email).sort((a, b) => Number(b.createdAt) - Number(a.createdAt)).map((r) => {
+  const myRows = state.db.requests.filter((r) => r.employeeEmail === user.email).sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
+  if (!myRows.length) {
+    tbody.innerHTML = `<tr class="table-empty-row"><td colspan="4">No requests yet.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = myRows.map((r) => {
     const details = requestDetailsText(r);
     return `<tr><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${details}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td></tr>`;
   }).join("");
@@ -646,10 +666,15 @@ function logout() {
 // ===== Event Bindings =====
 // Central event wiring for forms/buttons. Most create/update/delete behavior starts here.
 function bindEvents() {
+  // Input listener:
+  // When a user types into a field that was marked invalid, clear its inline error state immediately.
   document.addEventListener("input", (e) => {
     const target = e.target;
     if (target instanceof HTMLElement && target.classList.contains("is-invalid")) clearFieldError(target);
   });
+
+  // Profile/session listeners:
+  // Handles logout click, profile edit cancel, and profile update submit actions.
   $("logoutLink")?.addEventListener("click", (e) => { e.preventDefault(); logout(); });
   $("cancelProfileEditBtn")?.addEventListener("click", closeProfileEditForm);
   $("profileEditForm")?.addEventListener("submit", (e) => {
@@ -674,6 +699,8 @@ function bindEvents() {
     showToast("Profile updated.", "success", "top-center");
   });
 
+  // Registration listener:
+  // Validates required registration fields, enforces password/email rules, then creates an unverified account.
   $("registerForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const registerForm = $("registerForm");
@@ -700,6 +727,8 @@ function bindEvents() {
     navigateTo("#/verify-email");
   });
 
+  // Email verification simulation listener:
+  // Shows a short loading state, then marks the pending account as verified and redirects to login.
   $("simulateVerifyBtn")?.addEventListener("click", () => {
     const btn = $("simulateVerifyBtn");
     const msg = $("verifyEmailMessage");
@@ -740,6 +769,8 @@ function bindEvents() {
     }, 1200);
   });
 
+  // Login listener:
+  // Allows login only when email/password match and the account has been verified.
     $("loginForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const loginForm = $("loginForm");
@@ -759,6 +790,8 @@ function bindEvents() {
     navigateTo("#/profile");
   });
 
+  // Account admin listeners:
+  // Handles add/edit account form state and account create/update actions with admin safety rules.
   $("addAccountBtn")?.addEventListener("click", resetAccountForm);
   $("cancelAccountEditBtn")?.addEventListener("click", resetAccountForm);
   $("accountForm")?.addEventListener("submit", (e) => {
@@ -846,6 +879,8 @@ function bindEvents() {
     showToast("Account created.", "success");
   });
 
+  // Department admin listeners:
+  // Handles add/cancel edit actions and create/update operations for departments.
   $("addDepartmentBtn")?.addEventListener("click", () => {
     resetDepartmentForm();
     if ($("departmentNameInput")) $("departmentNameInput").focus();
@@ -886,6 +921,8 @@ function bindEvents() {
     showToast(editId ? "Department updated." : "Department added.", "success");
   });
 
+  // Employee admin listeners:
+  // Handles add/cancel edit actions and create/update employee rows linked to existing non-admin accounts.
   $("addEmployeeBtn")?.addEventListener("click", resetEmployeeForm);
   $("cancelEmployeeEditBtn")?.addEventListener("click", resetEmployeeForm);
   $("employeeForm")?.addEventListener("submit", (e) => {
@@ -942,6 +979,8 @@ function bindEvents() {
     showToast("Employee saved.", "success");
   });
 
+  // Request builder listeners:
+  // Handles modal reset, request-type switching, and dynamic item row add/remove controls.
   $("openRequestModalBtn")?.addEventListener("click", resetRequestBuilder);
   $("requestType")?.addEventListener("change", toggleRequestTypeFields);
   $("addRequestItemBtn")?.addEventListener("click", () => $("requestItemsContainer")?.appendChild(createRequestItemRow()));
@@ -953,6 +992,8 @@ function bindEvents() {
     target.closest(".request-item-row")?.remove();
   });
 
+  // Request submit listener:
+  // Validates leave/equipment inputs, stores the request, refreshes request tables, and closes the modal.
   $("requestForm")?.addEventListener("submit", (e) => {
     e.preventDefault();
     const requestForm = $("requestForm");

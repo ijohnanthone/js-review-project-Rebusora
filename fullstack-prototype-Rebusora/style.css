@@ -163,3 +163,13 @@ body.is-authenticated:not(.is-admin) .role-admin {
     font-style: italic;
     padding: 1rem 0.75rem;
 }
+
+#requestsSection .request-actions-cell {
+    white-space: nowrap;
+}
+
+#requestsSection .request-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}

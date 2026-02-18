@@ -609,7 +609,7 @@ function renderAdminRequests(user) {
   }
   tbody.innerHTML = state.db.requests.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt)).map((r) => {
     const details = requestDetailsText(r);
-    return `<tr><td>${r.employeeEmail}</td><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${details}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td><td><button class="btn btn-sm btn-outline-success me-1" data-request-action="approve" data-request-id="${r.id}">Approve</button><button class="btn btn-sm btn-outline-danger" data-request-action="reject" data-request-id="${r.id}">Reject</button></td></tr>`;
+    return `<tr><td>${r.employeeEmail}</td><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${details}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td><td class="request-actions-cell"><div class="request-actions"><button class="btn btn-sm btn-outline-success" data-request-action="approve" data-request-id="${r.id}">Approve</button><button class="btn btn-sm btn-outline-danger" data-request-action="reject" data-request-id="${r.id}">Reject</button></div></td></tr>`;
   }).join("");
   tbody.querySelectorAll("button[data-request-action]").forEach((btn) => btn.addEventListener("click", () => {
     const action = btn.getAttribute("data-request-action");

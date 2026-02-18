@@ -405,6 +405,7 @@ function renderDepartmentsTable() {
     const dept = state.db.departments.find((d) => Number(d.id) === deptId);
     if (!dept) return;
     if (action === "edit") return fillDepartmentForm(dept);
+    // Prevent delete when employees still reference this department.
     if (state.db.employees.some((e) => Number(e.departmentId) === deptId)) return showToast("Department is linked to employees.", "warning");
     state.db.departments = state.db.departments.filter((d) => Number(d.id) !== deptId);
     saveDB();
@@ -481,11 +482,13 @@ function renderEmployeesTable() {
     const id = String(btn.getAttribute("data-emp-id") || "").trim();
     const row = state.db.employees.find((e) => String(e.id) === id);
     if (!row) return;
+    // Delete removes only the employee row; linked account remains unchanged.
     if (action === "delete") {
       state.db.employees = state.db.employees.filter((e) => String(e.id) !== id);
       saveDB();
       return renderEmployeesTable();
     }
+    // Switch form to edit mode and unlock employee ID input.
     if ($("employeeEditId")) $("employeeEditId").value = String(row.id);
     if ($("employeeIdInput")) {
       $("employeeIdInput").value = String(row.id);
@@ -532,6 +535,7 @@ function toggleRequestTypeFields() {
   const type = String($("requestType")?.value || "Equipment");
   const itemsBlock = $("requestItemsBlock");
   const leaveBlock = $("requestLeaveBlock");
+  // Disable item inputs when type is Leave to avoid submitting mixed data.
   if (itemsBlock) itemsBlock.style.display = type === "Leave" ? "none" : "block";
   if (leaveBlock) leaveBlock.style.display = type === "Leave" ? "block" : "none";
   const itemInputs = document.querySelectorAll("#requestItemsContainer .request-item-name, #requestItemsContainer .request-item-qty");
@@ -586,6 +590,7 @@ function renderMyRequests(user) {
   if (!tbody) return;
   tbody.innerHTML = "";
   if (!user) return;
+  // User view only shows requests created by the logged-in email.
   const myRows = state.db.requests.filter((r) => r.employeeEmail === user.email).sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
   if (!myRows.length) {
     tbody.innerHTML = `<tr class="table-empty-row"><td colspan="4">No requests yet.</td></tr>`;
@@ -607,6 +612,7 @@ function renderAdminRequests(user) {
     tbody.innerHTML = `<tr class="table-empty-row"><td colspan="6">No requests yet.</td></tr>`;
     return;
   }
+  // Admin action updates status in-place, then refreshes both request tables.
   tbody.innerHTML = state.db.requests.slice().sort((a, b) => Number(b.createdAt) - Number(a.createdAt)).map((r) => {
     const details = requestDetailsText(r);
     return `<tr><td>${r.employeeEmail}</td><td>${new Date(r.createdAt).toLocaleString()}</td><td>${r.type}</td><td>${details}</td><td><span class="badge ${statusBadgeClass(r.status)}">${String(r.status).toUpperCase()}</span></td><td class="request-actions-cell"><div class="request-actions"><button class="btn btn-sm btn-outline-success" data-request-action="approve" data-request-id="${r.id}">Approve</button><button class="btn btn-sm btn-outline-danger" data-request-action="reject" data-request-id="${r.id}">Reject</button></div></td></tr>`;
@@ -635,6 +641,7 @@ function renderAdminViews(user) {
 }
 
 // Runs per-route view rendering hooks after route activation.
+// Route-specific render hooks keep each page light and on-demand.
 function renderRoute(hash, user) {
   if (hash === "#/register" || hash === "#/verify-email") renderVerifyBlock();
   if (hash === "#/profile") renderProfile(user);
@@ -643,12 +650,13 @@ function renderRoute(hash, user) {
 }
 
 // Central router: resolves user/session, applies guards, then renders view.
+
 function handleRouting() {
-  const user = getCurrentUser();
+  const user = getCurrentUser();// Always sync profile card first so auth changes are visible immediately.
   setAuthState(Boolean(user), user);
   renderProfile(currentUser);
   const hash = normalizeHash(window.location.hash || "#/");
-  const guarded = guardHash(hash, currentUser);
+  const guarded = guardHash(hash, currentUser);//
   if (guarded !== hash) { navigateTo(guarded); return; }
   if (hash !== "#/profile") closeProfileEditForm();
   setActiveRoute(hash);
